@@ -1,18 +1,15 @@
 use std::io::{BufRead, Error, ErrorKind, Result};
 
+fn invalid_data<E: std::error::Error + Send + Sync + 'static>(err: E) -> Error {
+    Error::new(ErrorKind::InvalidData, err)
+}
+
 pub fn load<R: BufRead>(reader: &mut R) -> Result<Vec<usize>> {
     reader
         .split(b',')
         .map(|b| {
-            b.and_then(|b| {
-                String::from_utf8(b)
-                    .map_err(|e| Error::new(ErrorKind::InvalidData, e))
-                    .and_then(|s| {
-                        s.trim()
-                            .parse()
-                            .map_err(|e| Error::new(ErrorKind::InvalidData, e))
-                    })
-            })
+            b.and_then(|b| String::from_utf8(b).map_err(invalid_data))
+                .and_then(|s| s.trim().parse().map_err(invalid_data))
         })
         .collect()
 }
