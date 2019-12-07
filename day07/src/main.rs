@@ -38,8 +38,57 @@ fn test_find_max_part1() {
     );
 }
 
+fn find_max_part2(program: &[i64]) -> i64 {
+    let mut results = Vec::new();
+    for phase_settings in (5..10).permutations(5) {
+        let mut runners = [
+            intcode(program),
+            intcode(program),
+            intcode(program),
+            intcode(program),
+            intcode(program),
+        ];
+        for i in 0..5 {
+            runners[i].input(phase_settings[i]);
+        }
+        let mut input = 0;
+        'outer: loop {
+            for runner in &mut runners {
+                runner.input(input);
+                if let Some(new_input) = runner.next() {
+                    input = new_input;
+                } else {
+                    break 'outer;
+                }
+            }
+        }
+        results.push(input);
+    }
+    results.into_iter().max().unwrap()
+}
+
+#[test]
+fn test_find_max_part2() {
+    assert_eq!(
+        find_max_part2(&[
+            3, 26, 1001, 26, -4, 26, 3, 27, 1002, 27, 2, 27, 1, 27, 26, 27, 4, 27, 1001, 28, -1,
+            28, 1005, 28, 6, 99, 0, 0, 5
+        ]),
+        139629729
+    );
+    assert_eq!(
+        find_max_part2(&[
+            3, 52, 1001, 52, -5, 52, 3, 53, 1, 52, 56, 54, 1007, 54, 5, 55, 1005, 55, 26, 1001, 54,
+            -5, 54, 1105, 1, 12, 1, 53, 54, 53, 1008, 54, 0, 55, 1001, 55, 1, 55, 2, 53, 55, 53, 4,
+            53, 1001, 56, -1, 56, 1005, 56, 6, 99, 0, 0, 0, 0, 10
+        ]),
+        18216
+    );
+}
+
 fn main() -> std::io::Result<()> {
     let program = intcode::load_stdin()?;
     println!("part 1: {}", find_max_part1(&program));
+    println!("part 2: {}", find_max_part2(&program));
     Ok(())
 }
