@@ -1,21 +1,25 @@
-use intcode::intcode;
+use intcode::{PollExt, Runner};
 
-fn main() -> std::io::Result<()> {
-    let program = intcode::load_stdin()?;
+fn main() {
+    let program = intcode::load_vec(&std::fs::read_to_string("input.txt").unwrap()).unwrap();
 
-    println!("day 1:");
-    let mut runner = intcode(&program);
-    runner.input(1);
-    for output in runner {
-        println!("{}", output);
+    {
+        let mut program = program.clone();
+        println!("day 1:");
+        let mut runner = Runner::new(&mut program);
+        runner.input(1);
+        for output in runner {
+            println!("{}", output.unwrap());
+        }
     }
 
-    println!("day 2:");
-    let mut runner = intcode(&program);
-    runner.input(5);
-    for output in runner {
-        println!("{}", output);
+    {
+        let mut program = program.clone();
+        println!("day 2:");
+        let mut runner = Runner::new(&mut program);
+        runner.input(5);
+        for output in runner {
+            println!("{}", output.unwrap());
+        }
     }
-
-    Ok(())
 }

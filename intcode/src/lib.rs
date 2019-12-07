@@ -1,46 +1,85 @@
-use std::io::{stdin, BufRead, BufReader, Error, ErrorKind, Result};
+#![no_std]
+#[cfg(feature = "alloc")]
+extern crate alloc;
 
-fn invalid_data<E: std::error::Error + Send + Sync + 'static>(err: E) -> Error {
-    Error::new(ErrorKind::InvalidData, err)
+use core::num::ParseIntError;
+use core::task::{Poll, Poll::*};
+
+pub trait PollExt<T> {
+    fn unwrap(self) -> T;
 }
 
-pub fn load_stdin() -> Result<Vec<i64>> {
-    BufReader::new(stdin())
-        .split(b',')
-        .map(|b| {
-            b.and_then(|b| String::from_utf8(b).map_err(invalid_data))
-                .and_then(|s| s.trim().parse().map_err(invalid_data))
-        })
-        .collect()
-}
-
-pub fn intcode(program: impl AsRef<[i64]>) -> Runner {
-    Runner {
-        program: program.as_ref().to_vec(),
-        input: Vec::new(),
-        data: [0; 2],
-        ip: 0,
+impl<T> PollExt<T> for Poll<T> {
+    fn unwrap(self) -> T {
+        match self {
+            Ready(v) => v,
+            Pending => panic!("program blocked on input"),
+        }
     }
 }
 
-pub struct Runner {
-    program: Vec<i64>,
-    input: Vec<i64>,
+pub fn load(s: &str, program: &mut [i64]) -> Result<(), ParseIntError> {
+    let mut iter = s.split(',');
+    for x in program.iter_mut() {
+        if let Some(s) = iter.next() {
+            *x = s.trim().parse()?;
+        } else {
+            break;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+#[test]
+fn test_load() {
+    let mut buf = [0; 12];
+    load("3,3,1108,-1,8,3,4,3,99", &mut buf).unwrap();
+    assert_eq!(&buf[..9], [3, 3, 1108, -1, 8, 3, 4, 3, 99]);
+}
+
+#[cfg(feature = "alloc")]
+pub fn load_vec(s: &str) -> Result<alloc::vec::Vec<i64>, ParseIntError> {
+    let mut v = alloc::vec::Vec::new();
+    for s in s.split(',') {
+        v.push(s.trim().parse()?);
+    }
+    Ok(v)
+}
+
+#[cfg(all(test, feature = "alloc"))]
+#[test]
+fn test_load_vec() {
+    assert_eq!(
+        load_vec("3,3,1108,-1,8,3,4,3,99").unwrap(),
+        [3, 3, 1108, -1, 8, 3, 4, 3, 99]
+    );
+}
+
+pub struct Runner<'a> {
+    program: &'a mut [i64],
+    input: Option<i64>,
     data: [i64; 2],
     ip: usize,
 }
 
-impl Runner {
+impl Runner<'_> {
+    pub fn new(program: &mut [i64]) -> Runner<'_> {
+        Runner {
+            program,
+            input: None,
+            data: [0; 2],
+            ip: 0,
+        }
+    }
+
     pub fn input(&mut self, input: i64) {
-        self.input.push(input);
+        self.input = Some(input);
     }
 
-    pub fn run(&mut self) -> Vec<i64> {
-        self.collect()
-    }
-
-    pub fn program(&self) -> &[i64] {
-        &self.program
+    #[cfg(feature = "alloc")]
+    pub fn run(&mut self) -> alloc::vec::Vec<i64> {
+        self.map(|x| x.unwrap()).collect()
     }
 
     fn pop(&mut self) -> i64 {
@@ -74,10 +113,10 @@ impl Runner {
     }
 }
 
-impl Iterator for Runner {
-    type Item = i64;
+impl Iterator for Runner<'_> {
+    type Item = Poll<i64>;
 
-    fn next(&mut self) -> Option<i64> {
+    fn next(&mut self) -> Option<Poll<i64>> {
         loop {
             let opcode = self.pop();
             match opcode % 100 {
@@ -93,12 +132,17 @@ impl Iterator for Runner {
                 }
                 3 => {
                     // write input
-                    *self.addr() = self.input.remove(0);
+                    if let Some(input) = core::mem::replace(&mut self.input, None) {
+                        *self.addr() = input;
+                    } else {
+                        self.ip -= 1;
+                        break Some(Pending);
+                    }
                 }
                 4 => {
                     // read output
                     self.read(opcode, 1);
-                    break Some(self.data[0]);
+                    break Some(Ready(self.data[0]));
                 }
                 5 => {
                     // jump-if-true
@@ -128,7 +172,12 @@ impl Iterator for Runner {
                     // halt
                     break None;
                 }
-                _ => unimplemented!(),
+                _ => unimplemented!(
+                    "opcode {} (ip={} program={:?})",
+                    opcode,
+                    self.ip,
+                    self.program
+                ),
             }
         }
     }
@@ -139,25 +188,46 @@ impl Iterator for Runner {
 fn test() {
     macro_rules! intcode_eq {
         ($in:expr, $out:expr) => {{
-            let mut runner = intcode($in.to_vec());
-            runner.run();
-            assert_eq!(runner.program(), $out.to_vec().as_slice());
+            let mut program = $in;
+            let mut runner = Runner::new(&mut program[..]);
+            assert!(runner.next().is_none());
+            assert_eq!(&program[..], &$out[..]);
         }};
 
         ($in:expr, $input:expr, $output:expr) => {{
-            let mut runner = intcode($in.to_vec());
-            for input in $input.to_vec() {
-                runner.input(input);
+            let mut program = $in;
+            let mut runner = Runner::new(&mut program[..]);
+            let input_orig = $input;
+            let mut input = &input_orig[..];
+            let output = $output;
+            let mut i = 0;
+            loop {
+                match runner.next() {
+                    Some(Ready(v)) => {
+                        assert_eq!(v, output[i]);
+                        i += 1;
+                    }
+                    Some(Pending) => {
+                        runner.input(input[0]);
+                        input = &input[1..];
+                    }
+                    None => {
+                        break;
+                    }
+                }
             }
-            assert_eq!(runner.run(), $output.to_vec());
+            assert_eq!(i, output.len());
         }};
     }
 
     // day 2
-    intcode_eq!([1, 0, 0, 0, 99], [2, 0, 0, 0, 99]);
-    intcode_eq!([2, 3, 0, 3, 99], [2, 3, 0, 6, 99]);
-    intcode_eq!([2, 4, 4, 5, 99, 0], [2, 4, 4, 5, 99, 9801]);
-    intcode_eq!([1, 1, 1, 4, 99, 5, 6, 0, 99], [30, 1, 1, 4, 2, 5, 6, 0, 99]);
+    intcode_eq!([1, 0, 0, 0, 99], &[2, 0, 0, 0, 99]);
+    intcode_eq!([2, 3, 0, 3, 99], &[2, 3, 0, 6, 99]);
+    intcode_eq!([2, 4, 4, 5, 99, 0], &[2, 4, 4, 5, 99, 9801]);
+    intcode_eq!(
+        [1, 1, 1, 4, 99, 5, 6, 0, 99],
+        &[30, 1, 1, 4, 2, 5, 6, 0, 99]
+    );
 
     // day 5
     intcode_eq!([3, 0, 4, 0, 99], [42], [42]);

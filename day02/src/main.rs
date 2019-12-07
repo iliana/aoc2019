@@ -1,25 +1,30 @@
-use intcode::intcode;
+use intcode::Runner;
 
-fn main() -> std::io::Result<()> {
-    let mut program = intcode::load_stdin()?;
+fn main() {
+    let program = intcode::load_vec(&std::fs::read_to_string("input.txt").unwrap()).unwrap();
 
-    program[1] = 12;
-    program[2] = 2;
-    let mut runner = intcode(&program);
-    runner.run();
-    println!("part 1: {}", runner.program()[0]);
+    {
+        let mut program = program.clone();
+        program[1] = 12;
+        program[2] = 2;
+        let mut runner = Runner::new(&mut program);
+        runner.run();
+        println!("part 1: {}", program[0]);
+    }
 
-    for noun in 0..100 {
-        for verb in 0..100 {
-            program[1] = noun;
-            program[2] = verb;
-            let mut runner = intcode(&program);
-            runner.run();
-            if runner.program()[0] == 19690720 {
-                println!("part 2: {}", 100 * noun + verb);
-                break;
+    {
+        for noun in 0..100 {
+            for verb in 0..100 {
+                let mut program = program.clone();
+                program[1] = noun;
+                program[2] = verb;
+                let mut runner = Runner::new(&mut program);
+                runner.run();
+                if program[0] == 19_690_720 {
+                    println!("part 2: {}", 100 * noun + verb);
+                    break;
+                }
             }
         }
     }
-    Ok(())
 }

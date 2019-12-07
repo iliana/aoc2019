@@ -1,4 +1,4 @@
-use intcode::intcode;
+use intcode::{PollExt, Runner};
 use itertools::Itertools;
 
 fn find_max_part1(program: &[i64]) -> i64 {
@@ -6,10 +6,12 @@ fn find_max_part1(program: &[i64]) -> i64 {
     for phase_settings in (0..5).permutations(5) {
         let mut input = 0;
         for phase in &phase_settings {
-            let mut runner = intcode(program);
+            let mut program = program.to_vec();
+            let mut runner = Runner::new(&mut program);
             runner.input(*phase);
+            runner.next();
             runner.input(input);
-            input = runner.run()[0];
+            input = runner.next().unwrap().unwrap();
         }
         results.push(input);
     }
@@ -41,22 +43,28 @@ fn test_find_max_part1() {
 fn find_max_part2(program: &[i64]) -> i64 {
     let mut results = Vec::new();
     for phase_settings in (5..10).permutations(5) {
+        let mut program_0 = program.to_vec();
+        let mut program_1 = program.to_vec();
+        let mut program_2 = program.to_vec();
+        let mut program_3 = program.to_vec();
+        let mut program_4 = program.to_vec();
         let mut runners = [
-            intcode(program),
-            intcode(program),
-            intcode(program),
-            intcode(program),
-            intcode(program),
+            Runner::new(&mut program_0),
+            Runner::new(&mut program_1),
+            Runner::new(&mut program_2),
+            Runner::new(&mut program_3),
+            Runner::new(&mut program_4),
         ];
         for i in 0..5 {
             runners[i].input(phase_settings[i]);
+            runners[i].next();
         }
         let mut input = 0;
         'outer: loop {
             for runner in &mut runners {
                 runner.input(input);
                 if let Some(new_input) = runner.next() {
-                    input = new_input;
+                    input = new_input.unwrap();
                 } else {
                     break 'outer;
                 }
@@ -86,9 +94,8 @@ fn test_find_max_part2() {
     );
 }
 
-fn main() -> std::io::Result<()> {
-    let program = intcode::load_stdin()?;
+fn main() {
+    let program = intcode::load_vec(&std::fs::read_to_string("input.txt").unwrap()).unwrap();
     println!("part 1: {}", find_max_part1(&program));
     println!("part 2: {}", find_max_part2(&program));
-    Ok(())
 }
