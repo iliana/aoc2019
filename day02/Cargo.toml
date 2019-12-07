@@ -9,3 +9,4 @@ publish = false
 
 [dependencies]
 intcode = { path = "../intcode" }
+util = { path = "../util" }

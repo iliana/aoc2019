@@ -1,8 +1,5 @@
 #![no_std]
-#[cfg(feature = "alloc")]
-extern crate alloc;
 
-use core::num::ParseIntError;
 use core::task::{Poll, Poll::*};
 
 pub trait PollExt<T> {
@@ -16,44 +13,6 @@ impl<T> PollExt<T> for Poll<T> {
             Pending => panic!("program blocked on input"),
         }
     }
-}
-
-pub fn load(s: &str, program: &mut [i64]) -> Result<(), ParseIntError> {
-    let mut iter = s.split(',');
-    for x in program.iter_mut() {
-        if let Some(s) = iter.next() {
-            *x = s.trim().parse()?;
-        } else {
-            break;
-        }
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-#[test]
-fn test_load() {
-    let mut buf = [0; 12];
-    load("3,3,1108,-1,8,3,4,3,99", &mut buf).unwrap();
-    assert_eq!(&buf[..9], [3, 3, 1108, -1, 8, 3, 4, 3, 99]);
-}
-
-#[cfg(feature = "alloc")]
-pub fn load_vec(s: &str) -> Result<alloc::vec::Vec<i64>, ParseIntError> {
-    let mut v = alloc::vec::Vec::new();
-    for s in s.split(',') {
-        v.push(s.trim().parse()?);
-    }
-    Ok(v)
-}
-
-#[cfg(all(test, feature = "alloc"))]
-#[test]
-fn test_load_vec() {
-    assert_eq!(
-        load_vec("3,3,1108,-1,8,3,4,3,99").unwrap(),
-        [3, 3, 1108, -1, 8, 3, 4, 3, 99]
-    );
 }
 
 pub struct Runner<'a> {
@@ -77,9 +36,10 @@ impl Runner<'_> {
         self.input = Some(input);
     }
 
-    #[cfg(feature = "alloc")]
-    pub fn run(&mut self) -> alloc::vec::Vec<i64> {
-        self.map(|x| x.unwrap()).collect()
+    pub fn run(&mut self) {
+        self.for_each(|x| {
+            x.unwrap();
+        })
     }
 
     fn pop(&mut self) -> i64 {

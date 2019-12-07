@@ -16,8 +16,7 @@ fn fuel_required_incl_fuel(input: i64) -> i64 {
 }
 
 fn main() {
-    let modules = std::fs::read_to_string("input.txt")
-        .unwrap()
+    let modules = util::read_input()
         .lines()
         .map(|v| v.parse())
         .collect::<Result<Vec<_>, _>>()

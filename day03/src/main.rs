@@ -105,7 +105,7 @@ fn test_intersections() {
 }
 
 fn main() {
-    let input = std::fs::read_to_string("input.txt").unwrap();
+    let input = util::read_input();
     let mut lines = input.lines();
     let a = lines.next().unwrap();
     let b = lines.next().unwrap();

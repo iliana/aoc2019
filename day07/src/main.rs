@@ -95,7 +95,7 @@ fn test_find_max_part2() {
 }
 
 fn main() {
-    let program = intcode::load_vec(&std::fs::read_to_string("input.txt").unwrap()).unwrap();
+    let program = util::read_intcode();
     println!("part 1: {}", find_max_part1(&program));
     println!("part 2: {}", find_max_part2(&program));
 }

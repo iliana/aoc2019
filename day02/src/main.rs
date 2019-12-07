@@ -1,7 +1,7 @@
 use intcode::Runner;
 
 fn main() {
-    let program = intcode::load_vec(&std::fs::read_to_string("input.txt").unwrap()).unwrap();
+    let program = util::read_intcode();
 
     {
         let mut program = program.clone();

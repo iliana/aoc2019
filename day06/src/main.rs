@@ -108,7 +108,7 @@ fn test_part2() {
 }
 
 fn main() {
-    let tree = build_tree(&std::fs::read_to_string("input.txt").unwrap());
+    let tree = build_tree(&util::read_input());
     println!("part 1: {}", orbit_count(&tree));
     println!("part 2: {}", transfer_count("YOU", "SAN", &tree));
 }

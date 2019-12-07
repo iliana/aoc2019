@@ -40,6 +40,8 @@ fn main() {
     );
     println!(
         "part 2: {}",
-        (248_345..=746_315).filter(|s| valid_password_part1(s) && valid_password_part2(s)).count()
+        (248_345..=746_315)
+            .filter(|s| valid_password_part1(s) && valid_password_part2(s))
+            .count()
     );
 }
