@@ -7,7 +7,7 @@ fn main() -> std::io::Result<()> {
         let mut program = program.clone();
         program[1] = 12;
         program[2] = 2;
-        intcode(&mut program);
+        intcode(&mut program, vec![]);
         println!("part 1: {}", program[0]);
     }
     for noun in 0..100 {
@@ -15,7 +15,7 @@ fn main() -> std::io::Result<()> {
             let mut program = program.clone();
             program[1] = noun;
             program[2] = verb;
-            intcode(&mut program);
+            intcode(&mut program, vec![]);
             if program[0] == 19690720 {
                 println!("part 2: {}", 100 * noun + verb);
                 break;
