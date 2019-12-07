@@ -1,11 +1,11 @@
-use std::io::{BufRead, Error, ErrorKind, Result};
+use std::io::{stdin, BufRead, BufReader, Error, ErrorKind, Result};
 
 fn invalid_data<E: std::error::Error + Send + Sync + 'static>(err: E) -> Error {
     Error::new(ErrorKind::InvalidData, err)
 }
 
-pub fn load<R: BufRead>(reader: &mut R) -> Result<Vec<i64>> {
-    reader
+pub fn load_stdin() -> Result<Vec<i64>> {
+    BufReader::new(stdin())
         .split(b',')
         .map(|b| {
             b.and_then(|b| String::from_utf8(b).map_err(invalid_data))
@@ -14,96 +14,125 @@ pub fn load<R: BufRead>(reader: &mut R) -> Result<Vec<i64>> {
         .collect()
 }
 
-fn read(ip: usize, n: usize, program: &[i64]) -> Vec<i64> {
-    let mut params = program[ip] / 100;
-    let mut v = Vec::with_capacity(n);
-    for i in 0..n {
-        v.push(match params % 10 {
-            0 => {
-                // position
-                let x = program[ip + 1 + i];
-                program[x as usize]
-            }
-            1 => {
-                // immediate
-                program[ip + 1 + i]
-            }
-            _ => unimplemented!(),
-        });
-        params /= 10;
+pub fn intcode(program: impl AsRef<[i64]>) -> Runner {
+    Runner {
+        program: program.as_ref().to_vec(),
+        ip: 0,
+        input: Vec::new(),
     }
-    v
 }
 
-pub fn intcode(program: &mut [i64], input: impl IntoIterator<Item = i64>) -> Vec<i64> {
-    let mut ip = 0;
-    let mut input = input.into_iter();
-    let mut output = Vec::new();
-    loop {
-        match program[ip] % 100 {
-            1 => {
-                // add
-                let data = read(ip, 2, &program);
-                let x = program[ip + 3] as usize;
-                program[x] = data[0] + data[1];
-                ip += 4;
-            }
-            2 => {
-                // multiply
-                let data = read(ip, 2, &program);
-                let x = program[ip + 3] as usize;
-                program[x] = data[0] * data[1];
-                ip += 4;
-            }
-            3 => {
-                // write input
-                let x = program[ip + 1] as usize;
-                program[x] = input.next().unwrap();
-                ip += 2;
-            }
-            4 => {
-                // read output
-                let data = read(ip, 1, &program);
-                output.push(data[0]);
-                ip += 2;
-            }
-            5 => {
-                // jump-if-true
-                let data = read(ip, 2, &program);
-                if data[0] != 0 {
-                    ip = data[1] as usize;
-                } else {
-                    ip += 3;
+pub struct Runner {
+    program: Vec<i64>,
+    input: Vec<i64>,
+    ip: usize,
+}
+
+impl Runner {
+    pub fn input(&mut self, input: i64) {
+        self.input.push(input);
+    }
+
+    pub fn run(&mut self) -> Vec<i64> {
+        self.collect()
+    }
+
+    pub fn program(&self) -> &[i64] {
+        &self.program
+    }
+
+    fn read(&self, n: usize) -> Vec<i64> {
+        let mut params = self.program[self.ip] / 100;
+        let mut v = Vec::with_capacity(n);
+        for i in 0..n {
+            let value = self.program[self.ip + 1 + i];
+            v.push(match params % 10 {
+                0 => {
+                    // position
+                    self.program[value as usize]
                 }
-            }
-            6 => {
-                // jump-if-false
-                let data = read(ip, 2, &program);
-                if data[0] == 0 {
-                    ip = data[1] as usize;
-                } else {
-                    ip += 3;
+                1 => {
+                    // immediate
+                    value
                 }
+                _ => unimplemented!(),
+            });
+            params /= 10;
+        }
+        v
+    }
+
+    fn addr(&mut self, offset: usize) -> &mut i64 {
+        let x = self.program[self.ip + offset] as usize;
+        &mut self.program[x]
+    }
+}
+
+impl Iterator for Runner {
+    type Item = i64;
+
+    fn next(&mut self) -> Option<i64> {
+        loop {
+            match self.program[self.ip] % 100 {
+                1 => {
+                    // add
+                    let data = self.read(2);
+                    *self.addr(3) = data[0] + data[1];
+                    self.ip += 4;
+                }
+                2 => {
+                    // multiply
+                    let data = self.read(2);
+                    *self.addr(3) = data[0] * data[1];
+                    self.ip += 4;
+                }
+                3 => {
+                    // write input
+                    *self.addr(1) = self.input.remove(0);
+                    self.ip += 2;
+                }
+                4 => {
+                    // read output
+                    let data = self.read(1);
+                    self.ip += 2;
+                    break Some(data[0]);
+                }
+                5 => {
+                    // jump-if-true
+                    let data = self.read(2);
+                    if data[0] != 0 {
+                        self.ip = data[1] as usize;
+                    } else {
+                        self.ip += 3;
+                    }
+                }
+                6 => {
+                    // jump-if-false
+                    let data = self.read(2);
+                    if data[0] == 0 {
+                        self.ip = data[1] as usize;
+                    } else {
+                        self.ip += 3;
+                    }
+                }
+                7 => {
+                    // less than
+                    let data = self.read(2);
+                    *self.addr(3) = if data[0] < data[1] { 1 } else { 0 };
+                    self.ip += 4;
+                }
+                8 => {
+                    // equals
+                    let data = self.read(2);
+                    *self.addr(3) = if data[0] == data[1] { 1 } else { 0 };
+                    self.ip += 4;
+                }
+                99 => {
+                    // halt
+                    break None;
+                }
+                _ => unimplemented!(),
             }
-            7 => {
-                // less than
-                let data = read(ip, 2, &program);
-                let x = program[ip + 3] as usize;
-                program[x] = if data[0] < data[1] { 1 } else { 0 };
-                ip += 4;
-            }
-            8 => {
-                // equals
-                let data = read(ip, 2, &program);
-                let x = program[ip + 3] as usize;
-                program[x] = if data[0] == data[1] { 1 } else { 0 };
-                ip += 4;
-            }
-            99 => {
-                // halt
-                break output;
-            }
-            _ => unimplemented!(),
         }
     }
 }
@@ -112,22 +141,19 @@ pub fn intcode(program: &mut [i64], input: impl IntoIterator<Item = i64>) -> Vec
 #[test]
 fn test() {
     macro_rules! intcode_eq {
-        ($in:expr, $input:expr, $out:expr, $output:expr) => {{
-            let mut program = $in.to_vec();
-            let output = intcode(&mut program, $input.to_vec());
-            assert_eq!(program, $out.to_vec());
-            assert_eq!(output, $output.to_vec());
+        ($in:expr, $out:expr) => {{
+            let mut runner = intcode($in.to_vec());
+            runner.run();
+            assert_eq!(runner.program(), $out.to_vec().as_slice());
         }};
 
-        ($in:expr, $out:expr) => {
-            intcode_eq!($in, [], $out, [])
-        };
-
-        ($in:expr, $input:expr, $output:expr) => {
-            let mut program = $in.to_vec();
-            let output = intcode(&mut program, $input.to_vec());
-            assert_eq!(output, $output.to_vec());
-        };
+        ($in:expr, $input:expr, $output:expr) => {{
+            let mut runner = intcode($in.to_vec());
+            for input in $input.to_vec() {
+                runner.input(input);
+            }
+            assert_eq!(runner.run(), $output.to_vec());
+        }};
     }
 
     // day 2
