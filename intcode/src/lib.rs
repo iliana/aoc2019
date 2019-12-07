@@ -17,14 +17,16 @@ pub fn load_stdin() -> Result<Vec<i64>> {
 pub fn intcode(program: impl AsRef<[i64]>) -> Runner {
     Runner {
         program: program.as_ref().to_vec(),
-        ip: 0,
         input: Vec::new(),
+        data: [0; 2],
+        ip: 0,
     }
 }
 
 pub struct Runner {
     program: Vec<i64>,
     input: Vec<i64>,
+    data: [i64; 2],
     ip: usize,
 }
 
@@ -41,12 +43,17 @@ impl Runner {
         &self.program
     }
 
-    fn read(&self, n: usize) -> Vec<i64> {
-        let mut params = self.program[self.ip] / 100;
-        let mut v = Vec::with_capacity(n);
+    fn pop(&mut self) -> i64 {
+        let x = self.program[self.ip];
+        self.ip += 1;
+        x
+    }
+
+    fn read(&mut self, opcode: i64, n: usize) {
+        let mut params = opcode / 100;
         for i in 0..n {
-            let value = self.program[self.ip + 1 + i];
-            v.push(match params % 10 {
+            let value = self.pop();
+            self.data[i] = match params % 10 {
                 0 => {
                     // position
                     self.program[value as usize]
@@ -56,14 +63,13 @@ impl Runner {
                     value
                 }
                 _ => unimplemented!(),
-            });
+            };
             params /= 10;
         }
-        v
     }
 
-    fn addr(&mut self, offset: usize) -> &mut i64 {
-        let x = self.program[self.ip + offset] as usize;
+    fn addr(&mut self) -> &mut i64 {
+        let x = self.pop() as usize;
         &mut self.program[x]
     }
 }
@@ -73,59 +79,50 @@ impl Iterator for Runner {
 
     fn next(&mut self) -> Option<i64> {
         loop {
-            match self.program[self.ip] % 100 {
+            let opcode = self.pop();
+            match opcode % 100 {
                 1 => {
                     // add
-                    let data = self.read(2);
-                    *self.addr(3) = data[0] + data[1];
-                    self.ip += 4;
+                    self.read(opcode, 2);
+                    *self.addr() = self.data[0] + self.data[1];
                 }
                 2 => {
                     // multiply
-                    let data = self.read(2);
-                    *self.addr(3) = data[0] * data[1];
-                    self.ip += 4;
+                    self.read(opcode, 2);
+                    *self.addr() = self.data[0] * self.data[1];
                 }
                 3 => {
                     // write input
-                    *self.addr(1) = self.input.remove(0);
-                    self.ip += 2;
+                    *self.addr() = self.input.remove(0);
                 }
                 4 => {
                     // read output
-                    let data = self.read(1);
-                    self.ip += 2;
-                    break Some(data[0]);
+                    self.read(opcode, 1);
+                    break Some(self.data[0]);
                 }
                 5 => {
                     // jump-if-true
-                    let data = self.read(2);
-                    if data[0] != 0 {
-                        self.ip = data[1] as usize;
-                    } else {
-                        self.ip += 3;
+                    self.read(opcode, 2);
+                    if self.data[0] != 0 {
+                        self.ip = self.data[1] as usize;
                     }
                 }
                 6 => {
                     // jump-if-false
-                    let data = self.read(2);
-                    if data[0] == 0 {
-                        self.ip = data[1] as usize;
-                    } else {
-                        self.ip += 3;
+                    self.read(opcode, 2);
+                    if self.data[0] == 0 {
+                        self.ip = self.data[1] as usize;
                     }
                 }
                 7 => {
                     // less than
-                    let data = self.read(2);
-                    *self.addr(3) = if data[0] < data[1] { 1 } else { 0 };
-                    self.ip += 4;
+                    self.read(opcode, 2);
+                    *self.addr() = if self.data[0] < self.data[1] { 1 } else { 0 };
                 }
                 8 => {
                     // equals
-                    let data = self.read(2);
-                    *self.addr(3) = if data[0] == data[1] { 1 } else { 0 };
-                    self.ip += 4;
+                    self.read(opcode, 2);
+                    *self.addr() = if self.data[0] == self.data[1] { 1 } else { 0 };
                 }
                 99 => {
                     // halt
