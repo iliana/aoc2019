@@ -1,5 +1,3 @@
-use std::io::prelude::*;
-
 fn fuel_required(input: i64) -> i64 {
     (input / 3) - 2
 }
@@ -18,10 +16,12 @@ fn fuel_required_incl_fuel(input: i64) -> i64 {
 }
 
 fn main() {
-    let modules = std::io::BufReader::new(std::io::stdin())
+    let modules = std::fs::read_to_string("input.txt")
+        .unwrap()
         .lines()
-        .filter_map(|v| v.ok().and_then(|v| v.parse().ok()))
-        .collect::<Vec<_>>();
+        .map(|v| v.parse())
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
     println!(
         "part 1: {}",
         modules.iter().cloned().map(fuel_required).sum::<i64>()

@@ -1,17 +1,15 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
-use std::io::{prelude::*, BufReader};
 
-fn build_tree(r: impl BufRead) -> std::io::Result<HashMap<String, String>> {
+fn build_tree(s: &str) -> HashMap<String, String> {
     let mut map = HashMap::new();
-    for line in r.lines() {
-        let line = line?;
+    for line in s.lines() {
         let mut iter = line.trim().split(')');
         let a = iter.next().unwrap();
         let b = iter.next().unwrap();
         map.insert(b.into(), a.into());
     }
-    Ok(map)
+    map
 }
 
 fn orbit_count(map: &HashMap<String, String>) -> usize {
@@ -72,7 +70,7 @@ fn transfer_count<'a>(a: &str, b: &str, map: &'a HashMap<String, String>) -> usi
 
 #[test]
 fn test_part1() {
-    let data = &b"COM)B
+    let data = &"COM)B
         B)C
         C)D
         D)E
@@ -83,7 +81,7 @@ fn test_part1() {
         E)J
         J)K
         K)L"[..];
-    let tree = build_tree(data).unwrap();
+    let tree = build_tree(data);
     assert_eq!(tree.len(), 11);
     assert_eq!(tree.get("C"), Some(&"B".to_string()));
     assert!(tree.get("COM").is_none());
@@ -92,7 +90,7 @@ fn test_part1() {
 
 #[test]
 fn test_part2() {
-    let data = &b"COM)B
+    let data = &"COM)B
         B)C
         C)D
         D)E
@@ -105,13 +103,12 @@ fn test_part2() {
         K)L
         K)YOU
         I)SAN"[..];
-    let tree = build_tree(data).unwrap();
+    let tree = build_tree(data);
     assert_eq!(transfer_count("YOU", "SAN", &tree), 4);
 }
 
-fn main() -> std::io::Result<()> {
-    let tree = build_tree(BufReader::new(std::io::stdin()))?;
+fn main() {
+    let tree = build_tree(&std::fs::read_to_string("input.txt").unwrap());
     println!("part 1: {}", orbit_count(&tree));
     println!("part 2: {}", transfer_count("YOU", "SAN", &tree));
-    Ok(())
 }

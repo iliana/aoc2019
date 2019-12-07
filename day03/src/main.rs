@@ -1,5 +1,4 @@
 use std::cmp::{max, min};
-use std::io::{BufRead, BufReader};
 use std::ops::Add;
 
 ///             ^ (1, 0)
@@ -106,9 +105,10 @@ fn test_intersections() {
 }
 
 fn main() {
-    let mut stdin = BufReader::new(std::io::stdin()).lines();
-    let a = stdin.next().unwrap().unwrap();
-    let b = stdin.next().unwrap().unwrap();
+    let input = std::fs::read_to_string("input.txt").unwrap();
+    let mut lines = input.lines();
+    let a = lines.next().unwrap();
+    let b = lines.next().unwrap();
     let intersections = intersections(&a, &b);
     println!(
         "part 1: {}",
