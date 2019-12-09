@@ -19,6 +19,7 @@ pub struct Runner<'a> {
     program: &'a mut [i64],
     input: Option<i64>,
     data: [i64; 2],
+    base: usize,
     ip: usize,
 }
 
@@ -28,6 +29,7 @@ impl Runner<'_> {
             program,
             input: None,
             data: [0; 2],
+            base: 0,
             ip: 0,
         }
     }
@@ -61,15 +63,23 @@ impl Runner<'_> {
                     // immediate
                     value
                 }
+                2 => {
+                    // relative
+                    self.program[(self.base as i64 + value) as usize]
+                }
                 _ => unimplemented!(),
             };
             params /= 10;
         }
     }
 
-    fn addr(&mut self) -> &mut i64 {
-        let x = self.pop() as usize;
-        &mut self.program[x]
+    fn addr(&mut self, mode: i64) -> &mut i64 {
+        let x = match mode % 10 {
+            0 => self.pop(),
+            2 => self.pop() + self.base as i64,
+            _ => unimplemented!(),
+        };
+        &mut self.program[x as usize]
     }
 }
 
@@ -83,17 +93,17 @@ impl Iterator for Runner<'_> {
                 1 => {
                     // add
                     self.read(opcode, 2);
-                    *self.addr() = self.data[0] + self.data[1];
+                    *self.addr(opcode / 10000) = self.data[0] + self.data[1];
                 }
                 2 => {
                     // multiply
                     self.read(opcode, 2);
-                    *self.addr() = self.data[0] * self.data[1];
+                    *self.addr(opcode / 10000) = self.data[0] * self.data[1];
                 }
                 3 => {
                     // write input
                     if let Some(input) = core::mem::replace(&mut self.input, None) {
-                        *self.addr() = input;
+                        *self.addr(opcode / 100) = input;
                     } else {
                         self.ip -= 1;
                         break Some(Pending);
@@ -121,12 +131,17 @@ impl Iterator for Runner<'_> {
                 7 => {
                     // less than
                     self.read(opcode, 2);
-                    *self.addr() = if self.data[0] < self.data[1] { 1 } else { 0 };
+                    *self.addr(opcode / 10000) = if self.data[0] < self.data[1] { 1 } else { 0 };
                 }
                 8 => {
                     // equals
                     self.read(opcode, 2);
-                    *self.addr() = if self.data[0] == self.data[1] { 1 } else { 0 };
+                    *self.addr(opcode / 10000) = if self.data[0] == self.data[1] { 1 } else { 0 };
+                }
+                9 => {
+                    // adjust relative base
+                    self.read(opcode, 1);
+                    self.base = (self.base as i64 + self.data[0]) as usize
                 }
                 99 => {
                     // halt
@@ -242,4 +257,22 @@ fn test() {
         [9],
         [1001]
     );
+
+    // day 9
+    let mut a = [0; 102];
+    &a[..16].copy_from_slice(&[
+        109, 1, 204, -1, 1001, 100, 1, 100, 1008, 100, 16, 101, 1006, 101, 0, 99,
+    ]);
+    intcode_eq!(
+        a,
+        [],
+        [109, 1, 204, -1, 1001, 100, 1, 100, 1008, 100, 16, 101, 1006, 101, 0, 99]
+    );
+
+    intcode_eq!(
+        [1102, 34915192, 34915192, 7, 4, 7, 99, 0],
+        [],
+        [1219070632396864]
+    );
+    intcode_eq!([104, 1125899906842624, 99], [], [1125899906842624]);
 }
