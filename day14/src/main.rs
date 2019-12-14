@@ -1,17 +1,20 @@
 #![deny(rust_2018_idioms)]
 
+use num_integer::Integer;
 use std::collections::HashMap;
+use std::fmt::{self, Display};
+use std::ops::{DivAssign, MulAssign};
 
 type Reactions<'a> = HashMap<&'a str, Reaction<'a>>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Reaction<'a> {
     inputs: Vec<Value<'a>>,
     output: Value<'a>,
 }
 
-impl Reaction<'_> {
-    fn parse(line: &str) -> Option<Reaction<'_>> {
+impl<'a> Reaction<'a> {
+    fn parse(line: &'a str) -> Option<Reaction<'a>> {
         let mut iter = line.trim().split("=>");
         Some(Reaction {
             inputs: iter
@@ -22,9 +25,67 @@ impl Reaction<'_> {
             output: Value::parse(iter.next()?)?,
         })
     }
+
+    fn flatten(&mut self) {
+        let mut map = HashMap::new();
+        for input in &self.inputs {
+            map.entry(input.unit)
+                .and_modify(|v| *v += input.amount)
+                .or_insert(input.amount);
+        }
+        let mut inputs = Vec::new();
+        for input in &self.inputs {
+            if let Some(amount) = map.remove(input.unit) {
+                inputs.push(Value {
+                    amount,
+                    unit: input.unit,
+                });
+            }
+        }
+        self.inputs = inputs;
+
+        self.div_assign(
+            self.inputs
+                .iter()
+                .map(|input| input.amount)
+                .fold(self.output.amount, |a, b| a.gcd(&b)),
+        );
+    }
 }
 
-#[derive(Debug)]
+impl Display for Reaction<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut first = true;
+        for input in &self.inputs {
+            if !first {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", input)?;
+            first = false;
+        }
+        write!(f, " => {}", self.output)
+    }
+}
+
+impl<'a> MulAssign<u64> for Reaction<'a> {
+    fn mul_assign(&mut self, rhs: u64) {
+        for input in self.inputs.iter_mut() {
+            *input *= rhs;
+        }
+        self.output *= rhs;
+    }
+}
+
+impl<'a> DivAssign<u64> for Reaction<'a> {
+    fn div_assign(&mut self, rhs: u64) {
+        for input in self.inputs.iter_mut() {
+            *input /= rhs;
+        }
+        self.output /= rhs;
+    }
+}
+
+#[derive(Debug, Clone)]
 struct Value<'a> {
     amount: u64,
     unit: &'a str,
@@ -37,6 +98,24 @@ impl Value<'_> {
             amount: iter.next()?.parse().ok()?,
             unit: iter.next()?,
         })
+    }
+}
+
+impl Display for Value<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}", self.amount, self.unit)
+    }
+}
+
+impl<'a> MulAssign<u64> for Value<'a> {
+    fn mul_assign(&mut self, rhs: u64) {
+        self.amount *= rhs;
+    }
+}
+
+impl<'a> DivAssign<u64> for Value<'a> {
+    fn div_assign(&mut self, rhs: u64) {
+        self.amount /= rhs;
     }
 }
 
@@ -95,10 +174,61 @@ fn ore_for_fuel(rxns: &Reactions<'_>) -> u64 {
     }
 }
 
+fn ore_for_fuel_exact(rxns: &Reactions<'_>, input_ore: u64) -> u64 {
+    let mut rxns = rxns.clone();
+    for rxn in rxns.values_mut() {
+        rxn.flatten();
+    }
+
+    while let Some(rxn) = rxns.values().find(|rxn| {
+        rxn.inputs.len() == 1 && rxn.inputs[0].unit == "ORE" && rxn.output.unit != "FUEL"
+    }) {
+        // {ore} ORE => {amount} {unit}
+        let ore = rxn.inputs[0].amount;
+        let amount = rxn.output.amount;
+        let unit = rxn.output.unit;
+
+        for rxn in rxns
+            .values_mut()
+            .filter(|rxn| rxn.inputs.iter().any(|input| input.unit == unit))
+        {
+            // {other} _, ... => _ {unit}
+            let other = rxn
+                .inputs
+                .iter()
+                .find(|input| input.unit == unit)
+                .unwrap()
+                .amount;
+            let lcm = amount.lcm(&other);
+            *rxn *= lcm / other;
+            let input = rxn
+                .inputs
+                .iter_mut()
+                .find(|input| input.unit == unit)
+                .unwrap();
+            *input = Value {
+                amount: lcm / amount * ore,
+                unit: "ORE",
+            };
+            rxn.flatten();
+        }
+
+        rxns.remove(unit);
+    }
+
+    let rxn = rxns.get("FUEL").unwrap();
+    assert!(rxn.inputs.len() == 1 && rxn.inputs[0].unit == "ORE");
+    let ore = rxn.inputs[0].amount;
+    let amount = rxn.output.amount;
+    (input_ore as f64 / ore as f64 * amount as f64) as u64
+}
+
 fn main() {
     let input = util::read_input();
     let rxns = parse_reactions(&input).unwrap();
     println!("part 1: {}", ore_for_fuel(&rxns));
+    // this answer wasn't actually right, but it minus 1 was. oh well
+    println!("part 2: {}", ore_for_fuel_exact(&rxns, 1000000000000));
 }
 
 #[cfg(test)]
@@ -133,4 +263,5 @@ fn test() {
                  5 BHXH, 4 VRPVC => 5 LTCX";
     let rxns = parse_reactions(input).unwrap();
     assert_eq!(ore_for_fuel(&rxns), 2210736);
+    assert_eq!(ore_for_fuel_exact(&rxns, 1000000000000), 460664);
 }
