@@ -1,5 +1,9 @@
 #![no_std]
+#![warn(clippy::pedantic)]
+#![allow(clippy::use_self)]
 
+use core::convert::TryFrom;
+use core::fmt::{self, Debug};
 use core::task::Poll;
 
 pub trait PollExt<T> {
@@ -10,27 +14,29 @@ impl<T> PollExt<T> for Poll<T> {
     fn unwrap(self) -> T {
         match self {
             Poll::Ready(v) => v,
-            Poll::Pending => panic!("program blocked on input"),
+            Poll::Pending => panic!("called `Poll::unwrap()` on a `Pending` value"),
         }
     }
 }
 
 pub struct Runner<'a> {
     program: &'a mut [i64],
-    input: Option<i64>,
-    data: [i64; 2],
-    base: usize,
     ip: usize,
+    base: i64,
+    halted: bool,
+    input: Option<i64>,
+    register: [i64; 2],
 }
 
 impl<'a> Runner<'a> {
     pub fn new(program: &'a mut [i64]) -> Runner<'a> {
         Runner {
             program,
-            input: None,
-            data: [0; 2],
-            base: 0,
             ip: 0,
+            base: 0,
+            halted: false,
+            input: None,
+            register: [0; 2],
         }
     }
 
@@ -49,10 +55,40 @@ impl<'a> Runner<'a> {
         }
     }
 
+    fn panic(&self, msg: &str, ip_offset: usize) -> ! {
+        panic!(
+            "{} (ip={} mem={})",
+            msg,
+            self.ip - ip_offset,
+            self.program[self.ip - ip_offset]
+        )
+    }
+
+    fn usize(&self, value: i64, msg: &str, ip_offset: usize) -> usize {
+        if let Ok(value) = usize::try_from(value) {
+            value
+        } else {
+            panic!(
+                "{} {} (ip={} mem={} base={})",
+                msg,
+                value,
+                self.ip - ip_offset,
+                self.program[self.ip - ip_offset],
+                self.base
+            );
+        }
+    }
+
     pub fn run(&mut self) {
-        self.for_each(|x| {
-            x.unwrap();
-        })
+        if !loop {
+            match self.next() {
+                Some(Poll::Ready(_)) => {}
+                Some(Poll::Pending) => break false,
+                None => break true,
+            }
+        } {
+            self.panic("program blocked on input", 0)
+        }
     }
 
     fn pop(&mut self) -> i64 {
@@ -65,10 +101,10 @@ impl<'a> Runner<'a> {
         let mut params = opcode / 100;
         for i in 0..n {
             let value = self.pop();
-            self.data[i] = match params % 10 {
+            self.register[i] = match params % 10 {
                 0 => {
                     // position
-                    self.program[value as usize]
+                    self.program[self.usize(value, "illegal position value", 1)]
                 }
                 1 => {
                     // immediate
@@ -76,9 +112,9 @@ impl<'a> Runner<'a> {
                 }
                 2 => {
                     // relative
-                    self.program[(self.base as i64 + value) as usize]
+                    self.program[self.usize(self.base + value, "illegal relative value", 1)]
                 }
-                _ => unimplemented!(),
+                _ => self.panic("illegal value parameter mode", 1),
             };
             params /= 10;
         }
@@ -87,10 +123,10 @@ impl<'a> Runner<'a> {
     fn addr(&mut self, mode: i64) -> &mut i64 {
         let x = match mode % 10 {
             0 => self.pop(),
-            2 => self.pop() + self.base as i64,
-            _ => unimplemented!(),
+            2 => self.pop() + self.base,
+            _ => self.panic("illegal address parameter mode", 0),
         };
-        &mut self.program[x as usize]
+        &mut self.program[self.usize(x, "illegal address", 1)]
     }
 }
 
@@ -98,18 +134,22 @@ impl Iterator for Runner<'_> {
     type Item = Poll<i64>;
 
     fn next(&mut self) -> Option<Poll<i64>> {
+        if self.halted {
+            return None;
+        }
+
         loop {
             let opcode = self.pop();
             match opcode % 100 {
                 1 => {
                     // add
                     self.read(opcode, 2);
-                    *self.addr(opcode / 10000) = self.data[0] + self.data[1];
+                    *self.addr(opcode / 10000) = self.register[0] + self.register[1];
                 }
                 2 => {
                     // multiply
                     self.read(opcode, 2);
-                    *self.addr(opcode / 10000) = self.data[0] * self.data[1];
+                    *self.addr(opcode / 10000) = self.register[0] * self.register[1];
                 }
                 3 => {
                     // write input
@@ -123,52 +163,69 @@ impl Iterator for Runner<'_> {
                 4 => {
                     // read output
                     self.read(opcode, 1);
-                    break Some(Poll::Ready(self.data[0]));
+                    break Some(Poll::Ready(self.register[0]));
                 }
                 5 => {
                     // jump-if-true
                     self.read(opcode, 2);
-                    if self.data[0] != 0 {
-                        self.ip = self.data[1] as usize;
+                    if self.register[0] != 0 {
+                        self.ip = self.usize(self.register[1], "illegal address", 1);
                     }
                 }
                 6 => {
                     // jump-if-false
                     self.read(opcode, 2);
-                    if self.data[0] == 0 {
-                        self.ip = self.data[1] as usize;
+                    if self.register[0] == 0 {
+                        self.ip = self.usize(self.register[1], "illegal address", 1);
                     }
                 }
                 7 => {
                     // less than
                     self.read(opcode, 2);
-                    *self.addr(opcode / 10000) = if self.data[0] < self.data[1] { 1 } else { 0 };
+                    *self.addr(opcode / 10000) = if self.register[0] < self.register[1] {
+                        1
+                    } else {
+                        0
+                    };
                 }
                 8 => {
                     // equals
                     self.read(opcode, 2);
-                    *self.addr(opcode / 10000) = if self.data[0] == self.data[1] { 1 } else { 0 };
+                    *self.addr(opcode / 10000) = if self.register[0] == self.register[1] {
+                        1
+                    } else {
+                        0
+                    };
                 }
                 9 => {
                     // adjust relative base
                     self.read(opcode, 1);
-                    self.base = (self.base as i64 + self.data[0]) as usize
+                    self.base += self.register[0];
                 }
                 99 => {
                     // halt
+                    self.halted = true;
                     break None;
                 }
-                _ => unimplemented!(
-                    "opcode {} (ip={} program={:?})",
-                    opcode,
-                    self.ip,
-                    self.program
-                ),
+                _ => self.panic("illegal instruction", 1),
             }
         }
     }
 }
 
+impl Debug for Runner<'_> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.debug_struct("Runner")
+            .field("ip", &self.ip)
+            .field("base", &self.base)
+            .field("halted", &self.halted)
+            .field("input", &self.input)
+            .field("register", &self.register)
+            .finish()
+    }
+}
+
+#[derive(Debug)]
 pub struct FullRunner<'a, I> {
     runner: Runner<'a>,
     iter: I,
@@ -199,7 +256,7 @@ where
                     if let Some(input) = self.iter.next() {
                         self.runner.input(input.into());
                     } else {
-                        panic!("program blocked on input");
+                        self.runner.panic("program blocked on input", 0);
                     }
                 }
                 None => break None,
@@ -229,13 +286,10 @@ fn test() {
     }
 
     // day 2
-    intcode_eq!([1, 0, 0, 0, 99], &[2, 0, 0, 0, 99]);
-    intcode_eq!([2, 3, 0, 3, 99], &[2, 3, 0, 6, 99]);
-    intcode_eq!([2, 4, 4, 5, 99, 0], &[2, 4, 4, 5, 99, 9801]);
-    intcode_eq!(
-        [1, 1, 1, 4, 99, 5, 6, 0, 99],
-        &[30, 1, 1, 4, 2, 5, 6, 0, 99]
-    );
+    intcode_eq!([1, 0, 0, 0, 99], [2, 0, 0, 0, 99]);
+    intcode_eq!([2, 3, 0, 3, 99], [2, 3, 0, 6, 99]);
+    intcode_eq!([2, 4, 4, 5, 99, 0], [2, 4, 4, 5, 99, 9801]);
+    intcode_eq!([1, 1, 1, 4, 99, 5, 6, 0, 99], [30, 1, 1, 4, 2, 5, 6, 0, 99]);
 
     // day 5
     intcode_eq!([3, 0, 4, 0, 99], [42], [42]);
