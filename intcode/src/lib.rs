@@ -23,8 +23,8 @@ pub struct Runner<'a> {
     ip: usize,
 }
 
-impl Runner<'_> {
-    pub fn new(program: &mut [i64]) -> Runner<'_> {
+impl<'a> Runner<'a> {
+    pub fn new(program: &'a mut [i64]) -> Runner<'a> {
         Runner {
             program,
             input: None,
@@ -36,6 +36,17 @@ impl Runner<'_> {
 
     pub fn input(&mut self, input: i64) {
         self.input = Some(input);
+    }
+
+    pub fn full_input<I, T>(self, input: I) -> FullRunner<'a, I::IntoIter>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<i64>,
+    {
+        FullRunner {
+            runner: self,
+            iter: input.into_iter(),
+        }
     }
 
     pub fn run(&mut self) {
@@ -158,6 +169,45 @@ impl Iterator for Runner<'_> {
     }
 }
 
+pub struct FullRunner<'a, I> {
+    runner: Runner<'a>,
+    iter: I,
+}
+
+impl<'a, I, T> FullRunner<'a, I>
+where
+    I: Iterator<Item = T>,
+    T: Into<i64>,
+{
+    pub fn run(&mut self) {
+        self.last();
+    }
+}
+
+impl<'a, I, T> Iterator for FullRunner<'_, I>
+where
+    I: Iterator<Item = T>,
+    T: Into<i64>,
+{
+    type Item = i64;
+
+    fn next(&mut self) -> Option<i64> {
+        loop {
+            match self.runner.next() {
+                Some(Poll::Ready(v)) => break Some(v),
+                Some(Poll::Pending) => {
+                    if let Some(input) = self.iter.next() {
+                        self.runner.input(input.into());
+                    } else {
+                        panic!("program blocked on input");
+                    }
+                }
+                None => break None,
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 #[test]
 fn test() {
@@ -171,27 +221,10 @@ fn test() {
 
         ($in:expr, $input:expr, $output:expr) => {{
             let mut program = $in;
-            let mut runner = Runner::new(&mut program[..]);
-            let input_orig = $input;
-            let mut input = &input_orig[..];
-            let output = $output;
-            let mut i = 0;
-            loop {
-                match runner.next() {
-                    Some(Poll::Ready(v)) => {
-                        assert_eq!(v, output[i]);
-                        i += 1;
-                    }
-                    Some(Poll::Pending) => {
-                        runner.input(input[0]);
-                        input = &input[1..];
-                    }
-                    None => {
-                        break;
-                    }
-                }
-            }
-            assert_eq!(i, output.len());
+            let input: &[i64] = &$input[..];
+            let runner = Runner::new(&mut program[..]).full_input(input.iter().cloned());
+            let output: &[i64] = &$output[..];
+            assert_eq!(runner.eq(output.iter().cloned()), true);
         }};
     }
 

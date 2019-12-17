@@ -73,18 +73,18 @@ fn main() {
     let c = "L,4,L,6,L,8,L,8";
     let main = "A,B,A,C,B,C,A,C,B,C";
 
-    let mut stdin = format!("{}\n{}\n{}\n{}\nn\n", main, a, b, c);
-
     let mut program = [0; 8192];
     program[..input.len()].copy_from_slice(&input);
     program[0] = 2;
-    let mut runner = Runner::new(&mut program);
-    let mut last = 0;
-    while let Some(poll) = runner.next() {
-        match poll {
-            Poll::Ready(v) => last = v,
-            Poll::Pending => runner.input(u32::from(stdin.remove(0)).into()),
-        }
-    }
-    println!("part 2: {}", last);
+    println!(
+        "part 2: {}",
+        Runner::new(&mut program)
+            .full_input(
+                format!("{}\n{}\n{}\n{}\nn\n", main, a, b, c)
+                    .into_bytes()
+                    .into_iter(),
+            )
+            .last()
+            .unwrap()
+    );
 }
