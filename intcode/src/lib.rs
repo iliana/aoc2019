@@ -1,6 +1,6 @@
 #![no_std]
 
-use core::task::{Poll, Poll::*};
+use core::task::Poll;
 
 pub trait PollExt<T> {
     fn unwrap(self) -> T;
@@ -9,8 +9,8 @@ pub trait PollExt<T> {
 impl<T> PollExt<T> for Poll<T> {
     fn unwrap(self) -> T {
         match self {
-            Ready(v) => v,
-            Pending => panic!("program blocked on input"),
+            Poll::Ready(v) => v,
+            Poll::Pending => panic!("program blocked on input"),
         }
     }
 }
@@ -106,13 +106,13 @@ impl Iterator for Runner<'_> {
                         *self.addr(opcode / 100) = input;
                     } else {
                         self.ip -= 1;
-                        break Some(Pending);
+                        break Some(Poll::Pending);
                     }
                 }
                 4 => {
                     // read output
                     self.read(opcode, 1);
-                    break Some(Ready(self.data[0]));
+                    break Some(Poll::Ready(self.data[0]));
                 }
                 5 => {
                     // jump-if-true
@@ -178,11 +178,11 @@ fn test() {
             let mut i = 0;
             loop {
                 match runner.next() {
-                    Some(Ready(v)) => {
+                    Some(Poll::Ready(v)) => {
                         assert_eq!(v, output[i]);
                         i += 1;
                     }
-                    Some(Pending) => {
+                    Some(Poll::Pending) => {
                         runner.input(input[0]);
                         input = &input[1..];
                     }
